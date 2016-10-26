@@ -1,0 +1,8 @@
+*~
+.idea
+activator*
+/project/project
+/project/target
+/target
+/*.out
+/src/main/resources/WonderField-f53a759d49c8.json

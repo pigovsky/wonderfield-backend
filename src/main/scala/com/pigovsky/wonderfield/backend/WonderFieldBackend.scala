@@ -104,7 +104,7 @@ object WonderFieldBackend extends App {
 
   def startNewGame(): Unit = {
     gameTask.secret = CollectionUtils.randomItem(tasks)
-    gameTask.message = s"We has started a new game. Guess a name of ${gameTask.secret.length} letters"
+    gameTask.message = s"We have started a new game. Guess a word of ${gameTask.secret.length} letters"
     gameTask.update()
     updateGameState()
   }

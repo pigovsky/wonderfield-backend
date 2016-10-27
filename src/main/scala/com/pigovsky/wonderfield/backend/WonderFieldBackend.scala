@@ -1,11 +1,12 @@
 package com.pigovsky.wonderfield.backend
 
+import java.util.concurrent.TimeUnit
 import java.util.{Timer, TimerTask}
 
 import com.google.firebase.database._
 import com.google.firebase.tasks.{OnFailureListener, OnSuccessListener}
 import com.google.firebase.{FirebaseApp, FirebaseOptions}
-import com.pigovsky.wonderfield.backend.model.GameTask
+import com.pigovsky.wonderfield.backend.model.{GameTask, Guess, UserCarma}
 import com.pigovsky.wonderfield.backend.util.CollectionUtils
 
 import scala.io.Source
@@ -41,10 +42,9 @@ object WonderFieldBackend extends App {
     override def onCancelled(databaseError: DatabaseError): Unit = println("cancelled")
 
     override def onChildAdded(dataSnapshot: DataSnapshot, s: String): Unit = {
-      val value = dataSnapshot.getValue().toString
-      println(s"child added $value $s")
-      guess(value)
-      updateGameState()
+      val guess = dataSnapshot.getValue(classOf[Guess])
+      println(s"child added $guess $s")
+      WonderFieldBackend.this.guess(guess)
       dataSnapshot.getRef.removeValue()
     }
 
@@ -52,34 +52,59 @@ object WonderFieldBackend extends App {
 
   while (true) {
     println("*")
-    Thread.sleep(5000)
+    Thread.sleep(TimeUnit.HOURS.toMillis(12))
   }
 
-  def guess(word: String): Unit = {
-    val secret = gameTask.tellSecret
-    if (word.length > 1) {
-      if (secret == word) {
-        gameTask.message = s"You hit! The word is $word"
-        word.copyToArray(gameTask.currentWordState)
-        timer.schedule(new TimerTask {
-          override def run(): Unit = startNewGame()
-        }, 5000)
-      } else {
-        gameTask.message = s"You loose. It is not $word..."
+  def guess(guess: Guess): Unit = {
+
+    val user = dbRef.child("users").child(guess.uid)
+
+    user.addListenerForSingleValueEvent(new ValueEventListener {
+      override def onDataChange(dataSnapshot: DataSnapshot): Unit = {
+        var userCarma = dataSnapshot.getValue(classOf[UserCarma])
+        if (userCarma == null) {
+          userCarma = new UserCarma
+        }
+        println("user " + userCarma)
+        val wordLower = guess.word.toLowerCase()
+        val secret = gameTask.tellSecret
+        val secretLower = secret.toLowerCase()
+        if (wordLower.length > 1) {
+          if (secretLower == wordLower) {
+            gameTask.message = s"${guess.displayName} has hit the word $secret"
+            userCarma.carma += 100
+            secret.copyToArray(gameTask.currentWordState)
+            timer.schedule(new TimerTask {
+              override def run(): Unit = startNewGame()
+            }, 5000)
+          } else {
+            gameTask.message = s"${guess.displayName} has loose, it is not ${guess.word}..."
+            userCarma.carma -= 100
+          }
+        } else if (wordLower.nonEmpty) {
+          if (secretLower.contains(wordLower)) {
+            gameTask.message = s"${guess.displayName} has hit the letter $wordLower"
+            secretLower.indices filter (i => secretLower(i) == wordLower.toLowerCase()(0)) foreach
+              (i => gameTask.currentWordState(i) = secret(i))
+            userCarma.carma += 1
+          } else {
+            gameTask.message = s"${guess.displayName}, there is no $wordLower letter in the secret word"
+            userCarma.carma -= 1
+          }
+        }
+        user.setValue(userCarma)
+        updateGameState()
       }
-    } else if (word.nonEmpty) {
-      if (secret.toLowerCase().contains(word.toLowerCase())) {
-        gameTask.message = s"The secret word does contain $word"
-        secret.indices filter (i => secret.toLowerCase()(i) == word.toLowerCase()(0)) foreach
-          (i => gameTask.currentWordState(i) = secret(i))
-      } else {
-        gameTask.message = s"There is no $word letter in the secret word"
+
+      override def onCancelled(databaseError: DatabaseError): Unit = {
+
       }
-    }
+    })
   }
 
   def startNewGame(): Unit = {
     gameTask.secret = CollectionUtils.randomItem(tasks)
+    gameTask.message = s"We has started a new game. Guess a name of ${gameTask.secret.length} letters"
     gameTask.update()
     updateGameState()
   }
